@@ -236,6 +236,12 @@ def load_data(parquet_path: Optional[str] = None) -> pd.DataFrame:
     base_dir = os.path.dirname(os.path.abspath(__file__))
     parquet_path = os.path.join(base_dir, "cars_scored.parquet")
 
+  if not os.path.exists(parquet_path):
+    raise FileNotFoundError(
+        f"Dataset not found at '{parquet_path}'. Make sure 'cars_scored.parquet'"
+        " is pushed to your GitHub repository."
+    )
+
   cars = pd.read_parquet(parquet_path)
   cars = cars.drop(
       columns=[
