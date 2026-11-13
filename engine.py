@@ -6,6 +6,7 @@ Aggregates matching listings into vehicle model summaries with TCO and market di
 """
 
 from dataclasses import dataclass, field
+import os
 import re
 from typing import List, Optional
 import numpy as np
@@ -182,7 +183,7 @@ SIZE_RULES = [
         r"^fiat (panda|500$|500e|500c|500 )|^hyundai (i10|getz)|^kia picanto|^ford ka|^smart |^opel (karl|adam|agila)|^dacia spring|^suzuki (alto|celerio)|^mini (one|cooper$)|^daihatsu|^honda e$",
         1,
     ),
-    # --- 2: small cars + small SUVs & coupe crossovers (C-HR & XCeed belong here due to restricted cabin/trunk)
+    # --- 2: small cars + small SUVs & coupe crossovers
     (
         r"^volkswagen (polo|t-cross|taigo)|^ford (fiesta|puma|ecosport|fusion)|^opel (corsa|mokka|crossland|meriva)|^renault (clio|captur|zoe|modus)|"
         r"^seat (ibiza|arona)|^skoda (fabia|kamiq|rapid|scala)|^peugeot (206|207|208|2008)|^citroen (c3|c3 aircross|c4 cactus|ds3)|^toyota (yaris|yaris cross|c-hr)|"
@@ -229,10 +230,14 @@ def size_for(model):
   return np.nan
 
 
-def load_data(
-    parquet_path: str = r"C:\Users\murat\Final Project\cars_scored.parquet",
-) -> pd.DataFrame:
-  """Loads and enriches the pre-scored car dataset."""
+def load_data(parquet_path: Optional[str] = None) -> pd.DataFrame:
+  """Loads and enriches the pre-scored car dataset using OS-independent relative paths."""
+  if parquet_path is None:
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    v2_path = os.path.join(base_dir, "cars_clean_v2.parquet")
+    scored_path = os.path.join(base_dir, "cars_scored.parquet")
+    parquet_path = v2_path if os.path.exists(v2_path) else scored_path
+
   cars = pd.read_parquet(parquet_path)
   cars = cars.drop(
       columns=[
@@ -496,7 +501,6 @@ def hard_filters(c, p: BuyerProfile, relaxed):
     ))
 
   # Strict Size Class Requirement:
-  # If the user has high cargo needs, require at least Class 3 (compact / compact SUV / MPV) or higher
   need = needed_size(p)
   if p.cargo == "high":
     min_size = max(3, need)
