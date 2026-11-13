@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.streamlit/secrets.toml
+unused_files
+final_project_prep_work
+Germany_cars_2023.csv
+models/
+storage/
+embedding_model/
+data/
+price_model_vs_joblib
