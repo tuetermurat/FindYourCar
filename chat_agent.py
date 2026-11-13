@@ -58,27 +58,28 @@ DEFAULT_SLOTS: Dict[str, Any] = {
 
 SYSTEM_PROMPT = """
 You are a sharp, warm, and perceptive automotive lifestyle advisor in Germany.
-The user has ALREADY locked in their max budget, annual mileage, and transmission preference.
+The user has ALREADY locked in their max budget, annual mileage, and transmission preference in Step 1.
 NEVER ask about budget/price, annual kilometers, or manual vs. automatic gearbox.
 
-YOUR GOAL:
-Have a natural, human conversation (ideally 2 to 4 turns) to understand who the buyer is, what vibe/purpose the car serves, and fill out the `extracted_profile` JSON slots.
-DO NOT act like a robotic checklist! If the user gives you multiple pieces of context in one message, extract ALL of them immediately and only ask about what is genuinely missing.
+STRICT CONVERSATION STYLE RULES (CRITICAL!):
+1. ASK ONLY ONE SINGLE QUESTION PER TURN! Never combine two questions in one message.
+2. KEEP IT SHORT: Maximum 2 sentences per reply (1 brief sentence acknowledging their answer + 1 clear, easy-to-read question).
+3. INFER SMARTLY SO YOU DON'T ASK UNNECESSARY QUESTIONS: When the user describes their vibe or family situation, automatically fill in the implied slots using the Vibe Rules below, and move straight to the next missing piece of information.
 
-INFORMATION YOU NEED TO GATHER (Naturally, combining related questions where appropriate):
-1. LIFESTYLE, PURPOSE & VIBE: Who is the car for and what is the vibe? (e.g., family with kids, solo commuter, impressing dates, sporty weekend car, high-seating SUV, dog owner).
-2. BRAND PREFERENCE: Do they have specific brands in mind (e.g., BMW, Audi, VW, Skoda, Toyota), or are they open to any make?
-3. DRIVING ENVIRONMENT: Mostly city traffic, balanced mix, or long Autobahn trips?
-4. POWERTRAIN (EV / PHEV vs. CLASSIC ENGINES): Explicitly check if they are interested in Electric (EV) or Plug-in Hybrid (PHEV) cars (and if they can charge at home), OR if they prefer to stick to classic Petrol / Diesel engines and ignore EVs/PHEVs.
-   * Note: If the user already stated "only petrol/diesel" or asked for a loud/classic sports car, set `ev_phev_preference = "exclude"` automatically without asking!
+THE 4 CORE THINGS TO KNOW BEFORE SETTING `is_profile_ready = true` (Ask ONE at a time, only for what is still `null`):
+1. LIFESTYLE / VIBE / WHO IT'S FOR: Who is riding in the car and what is the vibe/cargo need? (If they already told you in their first message, infer `passengers` and `cargo_level` immediately!).
+2. BRAND PREFERENCE: Ask if they have any favorite car brands (e.g., BMW, Audi, VW, Skoda, Toyota) or if they are open to all makes.
+3. DRIVING ENVIRONMENT: Ask whether their daily routine is mostly city traffic, a balanced mix, or mostly Autobahn/highway driving.
+4. EV / PHEV PREFERENCE: Ask directly: "Would you like to include Electric (EV) or Plug-in Hybrid (PHEV) cars, or should we stick strictly to classic Petrol and Diesel engines?"
+   * (If they say yes/open to EV/PHEV, you can assume `can_charge_at_home = true` unless they mention street parking. If they say no/classic, set `ev_phev_preference = "exclude"`).
 
-VIBE & PERSONA TRANSLATION RULES (Apply these proactively!):
-- "Impress girls / sexy / head-turner / date night / stylish coupe":
-  -> `sporty_preference = true`, `power_pref = "high"`, `brand_tier = "premium"`, `body_types = ["Coupe / Convertible", "Sedan"]`, `passengers = 2`, `cargo_level = "low"`. (Do NOT ask about trunk space or grocery bags!).
+VIBE & PERSONA TRANSLATION RULES (Apply automatically!):
+- "Impress girls / sexy / head-turner / date night / stylish / sporty coupe":
+  -> `sporty_preference = true`, `power_pref = "high"`, `brand_tier = "premium"`, `body_types = ["Coupe / Convertible", "Sedan"]`, `passengers = 2`, `cargo_level = "low"`. (Do NOT ask about luggage or passengers!).
 - "Family with kids / father of 2 / wife and kids":
   -> `passengers = 4` (or total family size), `is_family = true`, `cargo_level = "high"`, `body_types = ["Station Wagon", "SUV", "Van / MPV"]` (unless they explicitly asked for a Sedan).
 - "Sit high up / SUV / safe feeling / easy entry":
-  -> `body_types = ["SUV"]`.
+  -> `body_types = ["SUV"]`, `cargo_level = "medium"` (if not set).
 - "Autobahn cruiser / executive / long-distance comfort":
   -> `city_driving_share = 0.2`, `power_pref = "high"`, `body_types = ["Sedan", "Station Wagon", "SUV"]`.
 - "Cheap commuter / student / first car / low running costs":
@@ -103,17 +104,13 @@ ALLOWED SLOT VALUES:
 - `needs_awd`: bool
 
 CRITICAL RULE FOR `is_profile_ready`:
-- Set `is_profile_ready = true` ONLY when you have established:
-  1. The buyer's vibe/passengers/cargo (`passengers` and `cargo_level` are not null)
-  2. Their `preferred_brand` status (either specific brands or "open")
-  3. Their `city_driving_share` (not null)
-  4. Their `ev_phev_preference` ("exclude", "open", or "only_ev_phev" — not null)
-- If the profile is ALREADY ready and the user sends a follow-up message to tweak their results (e.g., "show me only SUVs" or "no EVs"), update the slots accordingly and keep `is_profile_ready = true`.
+- Set `is_profile_ready = true` ONLY when `passengers`, `cargo_level`, `preferred_brand`, `city_driving_share`, and `ev_phev_preference` are ALL non-null.
+- If `is_profile_ready` is already true and the user sends a follow-up tweak, update the slots and keep `is_profile_ready = true`.
 
 OUTPUT FORMAT:
 Respond with ONLY a valid JSON object:
 {
-  "reply": "Your natural, engaging advisor response + next question (or enthusiastic closing if is_profile_ready is true).",
+  "reply": "Short, natural 1-2 sentence reply with ONLY ONE question (or closing message if is_profile_ready is true).",
   "extracted_profile": { ...all slots... },
   "is_profile_ready": bool
 }
@@ -159,7 +156,7 @@ Current extracted slots:
 Conversation history:
 {dialogue_history}
 
-Return the updated JSON object. Remember: infer slots smartly from vibes, ask only what is still missing, and do not set is_profile_ready=true until passengers/vibe, preferred_brand, city_driving_share, and ev_phev_preference are all known.
+Return the updated JSON object. CRITICAL: Ask ONLY ONE short question in your `reply`! Do not bundle multiple questions together.
 """
 
     api_messages = [
@@ -171,12 +168,12 @@ Return the updated JSON object. Remember: infer slots smartly from vibes, ask on
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=api_messages,
-            temperature=0.25,
+            temperature=0.2,
             response_format={"type": "json_object"}
         )
         result_raw = response.choices[0].message.content
         data = json.loads(result_raw)
-        
+
         merged_slots = DEFAULT_SLOTS.copy()
         merged_slots.update(current_slots)
         if "extracted_profile" in data and isinstance(data["extracted_profile"], dict):
@@ -184,9 +181,8 @@ Return the updated JSON object. Remember: infer slots smartly from vibes, ask on
         data["extracted_profile"] = merged_slots
 
     except (BadRequestError, json.JSONDecodeError, Exception):
-        # Do NOT force is_profile_ready = True on transient API errors!
         data = {
-            "reply": "I caught most of that, could you rephrase that last part slightly so I make sure I dial in the right cars?",
+            "reply": "I caught most of that—could you rephrase that last part slightly?",
             "extracted_profile": current_slots,
             "is_profile_ready": False
         }
@@ -219,6 +215,8 @@ def create_buyer_profile(
     can_charge = extracted_slots.get("can_charge_at_home")
     if ev_pref == "exclude":
         can_charge = False
+    elif ev_pref in ("open", "only_ev_phev") and can_charge is None:
+        can_charge = True
 
     sporty = bool(extracted_slots.get("sporty_preference", False))
     power_pref = extracted_slots.get("power_pref") or ("high" if sporty else "any")
@@ -226,7 +224,7 @@ def create_buyer_profile(
 
     return BuyerProfile(
         budget_max=budget_max,
-        budget_floor_pct=0.35,  # Minimum price is 35% of max budget
+        budget_floor_pct=0.75,  # Look between 75% and 100% of max budget (e.g. €15k-€20k for €20k budget)
         annual_km=annual_km,
         transmission=transmission,
         passengers=int(passengers),

@@ -100,13 +100,13 @@ KM_PREF = {"typical": (50_000, 125_000), "low": (0, 30_000), "any": None}
 RELAX_ORDER = [
     "max_mileage",
     "max_age",
+    "budget_floor",
     "brand_tier",
     "sporty_loosen",
     "body_types",
-    "budget_floor",
+    "budget_plus_10pct",
     "transmission",
     "fuels_allowed",
-    "budget_plus_10pct",
 ]
 
 # ---------------------------------------------------------
@@ -128,7 +128,7 @@ BODIES = [
 @dataclass
 class BuyerProfile:
     budget_max: float
-    budget_floor_pct: float = 0.35  # Minimum car price as fraction of budget_max (e.g., 0.35 = 35%)
+    budget_floor_pct: float = 0.75  # Default: look between 75% and 100% of budget_max
     annual_km: int = 15_000
     ownership_years: int = 4
     passengers: int = 2
@@ -164,17 +164,18 @@ class BuyerProfile:
 
 def default_weights(p: BuyerProfile) -> dict:
     w = {
-        "cost": 2.5,
+        "cost": 2.0,
         "space": 2.0,
         "condition": 2.0,
         "power": 1.0,
         "fuel_fit": 1.0,
         "value": 2.5,
+        "budget_fit": 2.5,  # Rewards cars that utilize 85%-100% of the buyer's budget
         "sport": 0.0,
     }
     if p.is_family or p.cargo == "high" or p.passengers >= 4:
         w["space"] = 4.0
-        w["cost"] = 2.0
+        w["cost"] = 1.5
     if p.cargo == "low" and p.passengers <= 2 and not p.is_family:
         w["space"] = 0.5
     w["power"] = (
@@ -188,6 +189,7 @@ def default_weights(p: BuyerProfile) -> dict:
         w.update({
             "sport": 5.5,
             "power": 2.5,
+            "budget_fit": 3.0,
             "cost": 0.3,
             "space": 0.2,
             "fuel_fit": 0.2,
@@ -293,38 +295,39 @@ def load_data(parquet_path: Optional[str] = None) -> pd.DataFrame:
         r" s\b|\bsvr\b|\bgolf r\b|\bgt3\b|\bgt4\b"
     )
     SPORT_MODEL = (
-        r"^audi (s\d|rs ?\d|rs q\d|sq\d|tts|tt rs|r8)|^mercedes-benz .* (?:35|43|45|53|63|65)(?: |$)|^bmw m\d|^bmw (?:135|140|235|240|335|340|435|440|m550)|"
+        r"^audi (?:s\d|rs ?\d|rs q\d|sq\d|tts|tt rs|r8)|^mercedes-benz .* (?:35|43|45|53|63|65)(?: |$)|^bmw m\d|^bmw (?:135|140|235|240|335|340|435|440|m550)|"
         r"^porsche (?:911|718|cayman|boxster|99\d|997|991)|^mazda mx-5|^toyota (?:supra|gr|gt)|^subaru (?:brz|wrx)|^nissan (?:gt-r|370z|350z)|^honda s2000|"
         r"^chevrolet (?:camaro|corvette)|^ford (?:mustang$|mustang gt|focus rs)|^dodge (?:challenger|charger)|^ferrari|^lamborghini|^jaguar f-type|^alfa romeo 4c|^lotus|^alpine|"
         r"^aston martin|^mclaren|^bmw z4|^fiat 124"
     )
     cars["sport_badge"] = (
-        _txt.str.contains(SPORT_RE)
-        | cars["model"].str.lower().str.contains(SPORT_MODEL)
+        _txt.str.contains(SPORT_RE, regex=True)
+        | cars["model"].str.lower().str.contains(SPORT_MODEL, regex=True)
         | (
             (cars["brand"] == "ford")
-            & _txt.str.contains(r"\bst\b(?![- ]?line)")
+            & _txt.str.contains(r"\bst\b(?![- ]?line)", regex=True)
             & (cars["body_type"] != "SUV")
         )
         | (
             (cars["brand"] == "mini")
-            & _txt.str.contains(r"cooper s|john cooper")
+            & _txt.str.contains(r"cooper s|john cooper", regex=True)
         )
         | (
             (cars["brand"] == "skoda")
-            & _txt.str.contains(r"octavia")
-            & _txt.str.contains(r"\brs\b")
+            & _txt.str.contains(r"octavia", regex=True)
+            & _txt.str.contains(r"\brs\b", regex=True)
         )
         | (
             (cars["brand"] == "renault")
-            & _txt.str.contains(r"\brs\b|renault sport")
+            & _txt.str.contains(r"\brs\b|renault sport", regex=True)
         )
     )
 
     _d = cars["offer_description"].fillna("").str.lower()
     cars["is_phev"] = (cars["fuel_group"] == "Hybrid") & (
         _d.str.contains(
-            r"plug-?in|phev|e-hybrid|ehybrid|recharge|\bgte\b|\biv\b|dm-i|rechargeable"
+            r"plug-?in|phev|e-hybrid|ehybrid|recharge|\bgte\b|\biv\b|dm-i|rechargeable",
+            regex=True,
         )
         | (cars["consumption_l100"] < 2.6)
     )
@@ -393,7 +396,6 @@ def condition_score(c, p: BuyerProfile):
 def sport_score(c, p: BuyerProfile):
     pw = ((c["power_ps"] - 150) / (320 - 150)).clip(0, 1)
     badge = c["sport_badge"].astype(float)
-    # Give Coupe/Convertible and high-output Premium brands extra sportiness weight
     body_s = c["body_type"].map(SPORT_BODY).fillna(0.1)
     return 0.45 * pw + 0.25 * body_s + 0.30 * badge
 
@@ -442,6 +444,18 @@ def value_score(c):
     return 1 - pos * mult
 
 
+def budget_fit_score(c, p: BuyerProfile):
+    """
+    Rewards cars that utilize the buyer's target budget (sweet spot: 82% to 100% of budget_max).
+    Prevents €13k cars from outranking €19.5k cars when the buyer set a €20k budget.
+    """
+    ratio = c["price_in_euro"] / p.budget_max
+    # Full score (1.0) between 85% and 100% of budget; tapers down below 85%
+    under_score = ((ratio - 0.50) / (0.88 - 0.50)).clip(0, 1)
+    over_penalty = (1.0 - (ratio - 1.0).clip(lower=0) * 3.0).clip(0, 1)
+    return np.minimum(under_score, over_penalty)
+
+
 def annual_cost_table(c, p: BuyerProfile):
     km, n = p.annual_km, p.ownership_years
     fuel = c["fuel_cost_per_100km"] * km / 100
@@ -479,10 +493,10 @@ def annual_cost_table(c, p: BuyerProfile):
 
 
 def hard_filters(c, p: BuyerProfile, relaxed):
-    budget = p.budget_max * (1.10 if "budget_plus_10pct" in relaxed else 1.0)
-    # Fixed floor math: floor_pct is the minimum fraction of budget_max (e.g. 35% of max budget)
-    floor_pct = 0.15 if "budget_floor" in relaxed else p.budget_floor_pct
-    floor = min(p.budget_max * floor_pct, max(2500.0, p.budget_max - 8000.0))
+    budget = p.budget_max * (1.08 if "budget_plus_10pct" in relaxed else 1.0)
+    # Tight budget floor: 75% of budget_max normally (e.g., €15k for €20k budget), 60% if relaxed
+    floor_pct = 0.60 if "budget_floor" in relaxed else p.budget_floor_pct
+    floor = p.budget_max * floor_pct
 
     steps = [
         (
@@ -521,7 +535,7 @@ def hard_filters(c, p: BuyerProfile, relaxed):
             c["fuel_group"] != "Electric",
         ))
 
-    # Brand Tier Filter (e.g. Premium for "impress girls / executive", Economy for "cheap commuter")
+    # Brand Tier Filter
     if p.brand_tier == "premium" and "brand_tier" not in relaxed:
         steps.append((
             "premium / prestige brands",
@@ -552,7 +566,7 @@ def hard_filters(c, p: BuyerProfile, relaxed):
             ~c["body_type"].isin(["Coupe / Convertible"]),
         ))
 
-    # Strict Size Class Requirement (Blocks NaN sizes when min_size >= 3)
+    # Strict Size Class Requirement
     need = needed_size(p)
     if p.is_family or p.passengers >= 4 or p.cargo == "high":
         min_size = max(3, need if "body_types" in relaxed else need)
@@ -585,7 +599,6 @@ def hard_filters(c, p: BuyerProfile, relaxed):
             & c["body_type"].isin(list(SPORT_BODY))
             & (c["sport_badge"] | (c["body_type"] == "Coupe / Convertible"))
         )
-        # Prevent eco PHEVs from hijacking sporty searches unless requested
         if p.ev_phev_preference != "only_ev_phev":
             sport_cond = sport_cond & (~c["is_phev"])
         steps.append((
@@ -640,7 +653,7 @@ def explain_model(r, p: BuyerProfile):
         )
     if r["s_cost"] >= 0.65 and not p.sporty:
         why.append(
-            f"Low ownership cost: ~EUR {r['cost_total']:,.0f}/year"
+            f"Competitive ownership cost: ~EUR {r['cost_total']:,.0f}/year"
             f" all-in at {p.annual_km:,} km/yr"
         )
     if r["s_fuel_fit"] >= 0.65:
@@ -649,7 +662,7 @@ def explain_model(r, p: BuyerProfile):
             f" ({int(p.city_share * 100)}% city)"
         )
     why.append(
-        f"High market availability: {int(r['listings_count'])} matching listings analyzed"
+        f"High market availability: {int(r['listings_count'])} matching listings in your budget window"
     )
 
     if p.needs_towbar or p.needs_awd:
@@ -772,13 +785,15 @@ def recommend(
     costs = annual_cost_table(pool, p)
     pool = pool.join(costs.add_prefix("cost_"))
     S = pd.DataFrame(index=pool.index)
-    S["cost"] = 1 - pool["cost_total"].rank(pct=True)
+    # Rank running cost + depreciation rate so higher-priced cars near budget_max aren't unfairly penalized
+    S["cost"] = 1 - pool["cost_running"].rank(pct=True)
     S["space"] = space_score(pool, p)
     S["condition"] = condition_score(pool, p)
     S["sport"] = sport_score(pool, p)
     S["power"] = power_score(pool, p)
     S["fuel_fit"] = fuel_fit_score(pool, p)
     S["value"] = value_score(pool)
+    S["budget_fit"] = budget_fit_score(pool, p)
     w = default_weights(p)
     wsum = sum(w.values())
     pool["fit_score"] = sum(S[c] * w[c] for c in w) / wsum * 100
