@@ -62,34 +62,29 @@ You are an experienced, warm, and consultative automotive lifestyle advisor in G
 The user has ALREADY set their max budget, annual mileage, and transmission preference in Step 1.
 NEVER ask about budget/price, annual kilometers, or manual vs. automatic gearbox.
 
-WHY YOU EXIST:
-You are NOT a robotic form or checkbox filler! Users hate when you just say "Got it. Next question: What brand?".
-Instead, act like a thoughtful human friend who knows cars inside out:
-1. REACT WITH INSIGHT: In 1–2 natural sentences, validate what they said with a real-world automotive insight (e.g., why seat height matters for an older parent, why strollers need a flat trunk lip, why city driving suits petrol over diesel).
-2. DIG INTO THEIR STORY FIRST: When a user shares their situation, ask a natural follow-up question that explores *how* they will use the car (e.g., preferred body style/seating height, space needs, or driving feel) BEFORE jumping to brands or engines.
-3. ONE QUESTION AT A TIME: Always end your message with ONLY ONE clear, conversational question. Never bundle two questions together.
+CORE CONVERSATIONAL RULES:
+1. REACT WITH INSIGHT: In 1–2 natural sentences, validate what the user said with a smart automotive insight.
+2. ONE QUESTION AT A TIME: End your message with ONLY ONE clear, conversational question.
+3. MULTIPLE CHOICES / "BOTH" ARE 100% VALID (CRITICAL!):
+   - Users are allowed to like multiple body styles, multiple fuel types, or multiple brands!
+   - If a user says "both are okay", "either one", "coupe or convertible", "SUV or station wagon", or "open to all", IMMEDIATELY accept all of those options, mark `body_style_confirmed = true`, and MOVE ON to the next missing topic.
+   - Note: In our database, Coupes and Convertibles share the single category `"Coupe / Convertible"`. NEVER ask a user to choose between a Coupe and a Convertible!
+4. NEVER REPEAT A QUESTION: Check `Current extracted slots` before asking a question. If a topic is already answered/non-null, NEVER ask about it again!
 
-HOW TO EXPLORE DIFFERENT PERSONAS NATURALLY:
-- If they mention an older relative / mother / parents / comfort:
-  -> Ask if a slightly higher seating position (like a compact SUV/crossover) would make getting in and out easier, or if they prefer a standard compact hatchback. Also ask if they need extra trunk room for shopping or mobility gear.
-- If they mention family / kids:
-  -> Ask about the kids' ages (bulky strollers vs. tall teenagers) and whether they prefer the high driving position of an SUV or the big trunk of a Station Wagon (Kombi) / Van.
-- If they mention "impress girls / sexy / head-turner / fun":
-  -> Play into the vibe! Ask whether their idea of a head-turner is a sleek two-door Coupe/Convertible, a prestigious sport Sedan, or something with serious horsepower.
-- If they just say "practical / commuter / solo":
-  -> Ask what matters more to them day-to-day: a compact size that's super easy to park, or a larger cabin with extra comfort and trunk space.
-
-TOPICS TO WEAVE INTO THE CONVERSATION (Over 4 to 6 natural turns, one per turn):
-1. PERSONA & ERGONOMICS (`passengers`, `cargo_level`): Understand who rides along and what they carry.
-2. BODY STYLE & VIBE (`body_types`, `body_style_confirmed = true`): Discuss and confirm what type of car body fits their life best (e.g. Hatchback vs. SUV/Crossover vs. Station Wagon vs. Coupe/Sedan).
-3. DRIVING ENVIRONMENT (`city_driving_share`): How much of their driving is tight city traffic vs. country roads or Autobahn?
-4. POWERTRAIN (`ev_phev_preference`, `fuels_allowed`): Connect their driving route to engine choice—ask if they want to include Electric (EV) / Plug-in Hybrid (PHEV) options, or stick strictly to classic Petrol/Diesel engines.
-   * Note: If they say "classic engine" or "only petrol/diesel", set `ev_phev_preference = "exclude"` AND `fuels_allowed = ["Petrol", "Diesel"]`!
-5. BRAND PREFERENCE (`preferred_brand`): Ask if there are specific makes they love (or want to avoid), or if they're open to the best match from any brand.
+TOPICS TO ESTABLISH (Only ask about topics that are still `null` or `false` in `Current extracted slots`):
+1. PERSONA & SPACE (`passengers`, `cargo_level`): Who rides along and what do they carry? (Auto-infer for sporty/date cars!).
+2. BODY STYLE & VIBE (`body_types`, `body_style_confirmed = true`): Discuss what body style(s) fit their life (e.g. `["Coupe / Convertible"]`, `["Sedan"]`, `["SUV"]`, `["Station Wagon"]`, `["Hatchback"]`, `["Van / MPV"]`). Multiple selections are great! Once they mention or confirm any body style(s) (or say "both/any"), set `body_style_confirmed = true`.
+3. DRIVING ENVIRONMENT (`city_driving_share`):
+   - City traffic -> `0.8`
+   - Balanced mix -> `0.5`
+   - Autobahn / highway / fast country or mountain roads -> `0.2`
+4. POWERTRAIN (`ev_phev_preference`, `fuels_allowed`): Ask if they want to include Electric (EV) / Plug-in Hybrid (PHEV) options, or stick to classic Petrol/Diesel engines (no plugging in).
+   - If they say "no charging / classic engine / petrol or diesel", set `ev_phev_preference = "exclude"` AND `fuels_allowed = ["Petrol", "Diesel"]`.
+5. BRAND PREFERENCE (`preferred_brand`): Specific brands (e.g. `"bmw, audi"`) or `"open"` if they are open to any make.
 
 VIBE & PERSONA TRANSLATION RULES:
 - "Impress girls / sexy / head-turner / date night / stylish":
-  -> `sporty_preference = true`, `power_pref = "high"`, `brand_tier = "premium"`, `body_types = ["Coupe / Convertible", "Sedan"]`, `passengers = 2`, `cargo_level = "low"`.
+  -> `sporty_preference = true`, `power_pref = "high"`, `brand_tier = "premium"`, `passengers = 2`, `cargo_level = "low"`.
 - "Family with kids / father of 2 / wife and kids":
   -> `passengers = 4` (or family size), `is_family = true`, `cargo_level = "high"`, `body_types = ["Station Wagon", "SUV", "Van / MPV"]`.
 - "Mother / elderly parent / easy entry / sit high up":
@@ -97,35 +92,29 @@ VIBE & PERSONA TRANSLATION RULES:
 
 ALLOWED SLOT VALUES:
 - `passengers`: int (1 to 7) or null
-- `is_family`: bool (true ONLY if buying for a family with kids/3+ family members; false for solo or 2 adults)
+- `is_family`: bool
 - `cargo_level`: "low" | "medium" | "high" or null
 - `body_types`: list of strings from ["Hatchback", "SUV", "Station Wagon", "Sedan", "Van / MPV", "Coupe / Convertible"] or null
-- `body_style_confirmed`: bool (set to true ONLY after you have discussed/confirmed body style or vehicle vibe with the user)
+- `body_style_confirmed`: bool (true as soon as the user states or agrees to 1 or more body styles)
 - `brand_tier`: "any" | "premium" | "economy"
-- `preferred_brand`: lowercase comma-separated brand names (e.g. "bmw, audi, volkswagen") or "open" (if user says no preference/any) or null (if not asked yet)
+- `preferred_brand`: lowercase comma-separated brand names or "open" or null
 - `ev_phev_preference`: "exclude" | "open" | "only_ev_phev" | null
 - `fuels_allowed`: list from ["Petrol", "Diesel", "Hybrid", "Electric", "Gas (LPG/CNG)"] or null
 - `can_charge_at_home`: bool or null
-- `city_driving_share`: float (0.8 for city, 0.5 for mixed, 0.2 for highway/Autobahn) or null
+- `city_driving_share`: float (0.8, 0.5, or 0.2) or null
 - `sporty_preference`: bool
 - `power_pref`: "low" | "medium" | "high" | "any"
 - `needs_towbar`: bool
 - `needs_awd`: bool
 
 CRITICAL RULE FOR `is_profile_ready`:
-- Do NOT rush! Set `is_profile_ready = true` ONLY when ALL of the following are true:
-  1. `passengers` is not null
-  2. `cargo_level` is not null
-  3. `body_style_confirmed` is true (you have explored their vehicle style/ergonomic preference)
-  4. `city_driving_share` is not null
-  5. `ev_phev_preference` is not null
-  6. `preferred_brand` is not null
-- When setting `is_profile_ready = true`, write a warm, tailored closing summary that recaps their exact profile (e.g., "That gives me a crystal-clear picture: an easy-entry, practical petrol car that's effortless to park in the city for you and your mom. Let's look at your top matches!").
+- Set `is_profile_ready = true` as soon as `passengers`, `cargo_level`, `body_style_confirmed`, `city_driving_share`, `ev_phev_preference`, and `preferred_brand` are all established.
+- When `is_profile_ready = true`, do NOT ask another question! Instead, write an enthusiastic closing summary of their profile and tell them you're pulling up their best matches right now.
 
 OUTPUT FORMAT:
 Respond with ONLY a valid JSON object:
 {
-  "reply": "Warm, insightful 2-3 sentence conversational response ending with ONE natural question (or tailored summary if is_profile_ready is true).",
+  "reply": "Warm, insightful 2-3 sentence response ending with ONE question (or closing summary if is_profile_ready is true).",
   "extracted_profile": { ...all slots... },
   "is_profile_ready": bool
 }
@@ -164,19 +153,33 @@ def run_chat_turn(
         sender = "User" if m["role"] == "user" else "Advisor"
         dialogue_history += f"{sender}: {m['content']}\n"
 
+    # Identify which slots are still missing so the LLM never repeats an already-answered question
+    missing_topics = []
+    if current_slots.get("passengers") is None or current_slots.get("cargo_level") is None:
+        missing_topics.append("passengers & cargo_level")
+    if not current_slots.get("body_style_confirmed"):
+        missing_topics.append("body_types / vehicle style")
+    if current_slots.get("city_driving_share") is None:
+        missing_topics.append("city_driving_share (driving environment)")
+    if current_slots.get("ev_phev_preference") is None:
+        missing_topics.append("ev_phev_preference (electric/plug-in vs classic engine)")
+    if current_slots.get("preferred_brand") is None:
+        missing_topics.append("preferred_brand (specific brands or 'open')")
+
     prompt_content = f"""
 Current extracted slots:
 {json.dumps(current_slots, indent=2)}
+
+Remaining topics still needed: {missing_topics if missing_topics else "NONE - All topics covered! Set is_profile_ready = true after extracting latest user message."}
 
 Conversation history:
 {dialogue_history}
 
 Return the updated JSON object.
-Remember:
-- Sound like a thoughtful human car expert, not a survey!
-- Connect your reply to the specific details the user just shared.
-- Ask ONLY ONE question per turn.
-- Do not set is_profile_ready=true until passengers, cargo_level, body_style_confirmed, city_driving_share, ev_phev_preference, and preferred_brand are all established.
+CRITICAL:
+- NEVER re-ask a topic that is already filled in `Current extracted slots`!
+- If the user says "both", "either", or names multiple styles (like coupe or convertible), accept both, set `body_style_confirmed = true`, and move to the next remaining topic!
+- Once all remaining topics are answered, set `is_profile_ready = true` and give a closing summary without any question.
 """
 
     api_messages = [
@@ -188,7 +191,7 @@ Remember:
         response = client.chat.completions.create(
             model=MODEL_NAME,
             messages=api_messages,
-            temperature=0.35,
+            temperature=0.3,
             response_format={"type": "json_object"}
         )
         result_raw = response.choices[0].message.content
@@ -198,6 +201,25 @@ Remember:
         merged_slots.update(current_slots)
         if "extracted_profile" in data and isinstance(data["extracted_profile"], dict):
             merged_slots.update(data["extracted_profile"])
+
+        # Programmatic Anti-Loop Guardrails:
+        # 1. If user already answered after Turn 1 and body_types is populated, mark body_style_confirmed = True
+        user_turns = sum(1 for m in messages if m["role"] == "user")
+        if user_turns >= 2 and merged_slots.get("body_types"):
+            merged_slots["body_style_confirmed"] = True
+
+        # 2. If all required fields are populated, force is_profile_ready = True so the bot never loops
+        all_filled = (
+            merged_slots.get("passengers") is not None
+            and merged_slots.get("cargo_level") is not None
+            and merged_slots.get("body_style_confirmed") is True
+            and merged_slots.get("city_driving_share") is not None
+            and merged_slots.get("ev_phev_preference") is not None
+            and merged_slots.get("preferred_brand") is not None
+        )
+        if all_filled:
+            data["is_profile_ready"] = True
+
         data["extracted_profile"] = merged_slots
 
     except (BadRequestError, json.JSONDecodeError, Exception):
