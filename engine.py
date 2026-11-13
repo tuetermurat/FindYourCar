@@ -234,9 +234,7 @@ def load_data(parquet_path: Optional[str] = None) -> pd.DataFrame:
   """Loads and enriches the pre-scored car dataset using OS-independent relative paths."""
   if parquet_path is None:
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    v2_path = os.path.join(base_dir, "cars_clean_v2.parquet")
-    scored_path = os.path.join(base_dir, "cars_scored.parquet")
-    parquet_path = v2_path if os.path.exists(v2_path) else scored_path
+    parquet_path = os.path.join(base_dir, "cars_scored.parquet")
 
   cars = pd.read_parquet(parquet_path)
   cars = cars.drop(
